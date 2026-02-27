@@ -1,0 +1,104 @@
+# On Release published (non–pre-release): build exe + Python package, upload all to GitHub Release
+name: Build and Publish Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-windows:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pyinstaller
+
+      - name: Build exe with PyInstaller
+        run: |
+          pyinstaller soundwave_visualizer.spec
+          dir dist
+
+      - name: Upload exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/SoundwaveVisualizer.exe
+
+  build-python:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build
+        run: python -m pip install --upgrade pip build
+
+      - name: Build package
+        run: python -m build
+
+      - name: Upload Python dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+  release:
+    if: ${{ !github.event.release.prerelease }}
+    needs: [build-windows, build-python]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download exe artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-exe
+
+      - name: Download Python dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: python-dist
+
+      - name: Rename exe with tag
+        run: mv SoundwaveVisualizer.exe "SoundwaveVisualizer-${{ github.event.release.tag_name }}-windows.exe"
+
+      - name: Upload assets to GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPLOAD_URL: ${{ github.event.release.upload_url }}
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          EXE="SoundwaveVisualizer-${TAG}-windows.exe"
+          BASE_URL="${UPLOAD_URL%%\{*}"
+          for f in "$EXE" python-dist/*; do
+            [ -e "$f" ] || continue
+            name=$(basename "$f")
+            echo "Uploading $name ..."
+            curl -sS -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/octet-stream" \
+              "$BASE_URL?name=$name" \
+              --data-binary @"$f"
+          done
