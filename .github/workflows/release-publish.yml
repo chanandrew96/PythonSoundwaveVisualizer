@@ -1,19 +1,24 @@
-# On Release published (non–pre-release): build exe + Python package, upload all to GitHub Release
+# On tag push or Release published: build exe + Python package, upload all to GitHub Release.
+# - push tags (v*): create / update Release and upload assets
+# - release published (non–pre-release): attach assets to that Release
 name: Build and Publish Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   release:
     types: [published]
 
 jobs:
   build-windows:
-    if: ${{ !github.event.release.prerelease }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'release' && !github.event.release.prerelease) }}
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,13 +43,13 @@ jobs:
           path: dist/SoundwaveVisualizer.exe
 
   build-python:
-    if: ${{ !github.event.release.prerelease }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'release' && !github.event.release.prerelease) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -64,7 +69,7 @@ jobs:
           path: dist/
 
   release:
-    if: ${{ !github.event.release.prerelease }}
+    if: ${{ github.event_name == 'push' || (github.event_name == 'release' && !github.event.release.prerelease) }}
     needs: [build-windows, build-python]
     runs-on: ubuntu-latest
     permissions:
@@ -82,23 +87,38 @@ jobs:
           path: python-dist
 
       - name: Rename exe with tag
-        run: mv SoundwaveVisualizer.exe "SoundwaveVisualizer-${{ github.event.release.tag_name }}-windows.exe"
+        env:
+          TAG_NAME: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
+        run: mv SoundwaveVisualizer.exe "SoundwaveVisualizer-${TAG_NAME}-windows.exe"
 
-      - name: Upload assets to GitHub Release
+      - name: Upload assets when triggered by Release
+        if: ${{ github.event_name == 'release' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           UPLOAD_URL: ${{ github.event.release.upload_url }}
+          TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
-          EXE="SoundwaveVisualizer-${TAG}-windows.exe"
+          EXE="SoundwaveVisualizer-${TAG_NAME}-windows.exe"
           BASE_URL="${UPLOAD_URL%%\{*}"
           for f in "$EXE" python-dist/*; do
             [ -e "$f" ] || continue
             name=$(basename "$f")
-            echo "Uploading $name ..."
+            echo "Uploading $name to existing Release..."
             curl -sS -X POST \
               -H "Authorization: token $GITHUB_TOKEN" \
               -H "Content-Type: application/octet-stream" \
               "$BASE_URL?name=$name" \
               --data-binary @"$f"
           done
+
+      - name: Create / update Release and upload assets (on tag push)
+        if: ${{ github.event_name == 'push' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            SoundwaveVisualizer-${{ github.ref_name }}-windows.exe
+            python-dist/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
