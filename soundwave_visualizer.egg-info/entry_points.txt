@@ -1,0 +1,2 @@
+[console_scripts]
+soundwave-visualizer = soundwave_visualizer.cli:main

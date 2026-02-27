@@ -1,0 +1,13 @@
+LICENSE
+README.md
+pyproject.toml
+soundwave_visualizer/__init__.py
+soundwave_visualizer/cli.py
+soundwave_visualizer/defaults.py
+soundwave_visualizer/visualizer.py
+soundwave_visualizer.egg-info/PKG-INFO
+soundwave_visualizer.egg-info/SOURCES.txt
+soundwave_visualizer.egg-info/dependency_links.txt
+soundwave_visualizer.egg-info/entry_points.txt
+soundwave_visualizer.egg-info/requires.txt
+soundwave_visualizer.egg-info/top_level.txt
