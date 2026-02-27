@@ -27,6 +27,20 @@ except ImportError:
     ImageFilter = None
 
 
+def check_ffmpeg(ffmpeg_path: str = "ffmpeg") -> bool:
+    """Return True if ffmpeg is available at the given path (or in PATH if path is 'ffmpeg')."""
+    path = (ffmpeg_path or "ffmpeg").strip() or "ffmpeg"
+    try:
+        r = subprocess.run(
+            [path, "-version"],
+            capture_output=True,
+            timeout=5,
+        )
+        return r.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+
+
 def _resolve_font() -> FontProperties:
     """Return a font that supports UTF-8 / CJK."""
     for name in D.UTF8_FONT_NAMES:
@@ -77,6 +91,7 @@ class SoundwaveVisualizer:
         fps: int = D.FPS,
         output_dir: str = "",
         output_filename: Optional[str] = None,
+        ffmpeg_path: str = "ffmpeg",
     ):
         """
         Args:
@@ -103,6 +118,7 @@ class SoundwaveVisualizer:
             fps: Frames per second for preview and export.
             output_dir: Default directory for exported video (used when output_path not given).
             output_filename: Default output filename (e.g. "sound_wave.mp4"; used when output_path not given).
+            ffmpeg_path: Path to ffmpeg executable, or "ffmpeg" to use system PATH.
         """
         if isinstance(audio, str):
             self._audio, self._sr = librosa.load(audio, sr=None)
@@ -137,6 +153,7 @@ class SoundwaveVisualizer:
         self._fps = fps
         self._output_dir = (output_dir or "").strip()
         self._output_filename = (output_filename or D.OUTPUT_FILE).strip() or D.OUTPUT_FILE
+        self._ffmpeg_path = (ffmpeg_path or "ffmpeg").strip() or "ffmpeg"
 
         self._duration_sec = len(self._audio) / self._sr
         self._num_frames = max(1, int(round(self._duration_sec * fps)))
@@ -394,7 +411,7 @@ class SoundwaveVisualizer:
         try:
             run = subprocess.run(
                 [
-                    "ffmpeg",
+                    self._ffmpeg_path,
                     "-y",
                     "-i", video_path,
                     "-i", audio_path,
@@ -474,7 +491,15 @@ class SoundwaveVisualizer:
             fig.patch.set_facecolor(self._background_color or "white")
             ax.set_facecolor("none" if self._has_bg_image else (self._background_color or "white"))
         ani = self.create_animation(fig, ax, transparent=transparent)
-        ani.save(path, writer="ffmpeg", fps=self._fps, savefig_kwargs={"transparent": transparent})
+        # If custom ffmpeg path, prepend its directory to PATH so matplotlib's writer finds it
+        old_path = os.environ.get("PATH", "")
+        if os.sep in self._ffmpeg_path:
+            ffmpeg_dir = os.path.dirname(os.path.abspath(self._ffmpeg_path))
+            os.environ["PATH"] = ffmpeg_dir + os.pathsep + old_path
+        try:
+            ani.save(path, writer="ffmpeg", fps=self._fps, savefig_kwargs={"transparent": transparent})
+        finally:
+            os.environ["PATH"] = old_path
         plt.close(fig)
         self._mux_audio_into_video(path)
         return path
